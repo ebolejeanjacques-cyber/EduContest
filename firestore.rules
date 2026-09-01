@@ -1,0 +1,246 @@
+/**
+ * firestore.rules
+ * -----------------------------------------------------------------------
+ * Règles de sécurité Cloud Firestore pour EduContest.
+ *
+ * Comment les installer :
+ *   Console Firebase → Firestore Database → onglet "Règles" → collez ce
+ *   fichier → "Publier". (Voir README.md, étape 7.)
+ *
+ * Principes appliqués :
+ *  - Personne ne peut lire ni écrire sans être connecté (sauf lecture
+ *    publique des concours/catégories/questions/résultats, nécessaire à
+ *    l'interface publique et au classement affiché sans connexion).
+ *  - Un participant ne peut modifier QUE ses propres participations,
+ *    réponses et résultats (jamais ceux d'un autre utilisateur).
+ *  - Un participant ne peut jamais écrire dans "questions" (empêche la
+ *    triche : impossible de modifier une bonne réponse depuis le client).
+ *  - Un organisateur ne peut modifier/supprimer que les concours et
+ *    questions dont il est propriétaire (`organizerId` == son uid).
+ *  - Un administrateur (rôle "admin" dans son document users/{uid}) a
+ *    tous les droits.
+ *  - Un utilisateur ne peut jamais modifier son PROPRE champ `role`
+ *    (empêche un participant de s'auto-promouvoir administrateur).
+ *
+ * ⚠️ LIMITE IMPORTANTE ⚠️
+ * Ces règles s'appuient sur le champ `role` du document `users/{uid}`
+ * pour déterminer les autorisations (fonctions `isAdmin()`,
+ * `isOrganizer()` ci-dessous). Ce document reste, par nature, une donnée
+ * Firestore comme une autre : sa protection dépend entièrement de la
+ * qualité des règles ci-dessous. Pour une sécurité réellement robuste en
+ * production, la gestion de rôles sensibles (notamment la promotion vers
+ * "admin") devrait idéalement passer par un mécanisme contrôlé côté
+ * serveur — par exemple des "custom claims" Firebase gérés via une Cloud
+ * Function et le Firebase Admin SDK — plutôt que par un simple champ
+ * Firestore. Ce projet reste une application 100% frontend, sans
+ * backend, et ne peut donc pas offrir ce niveau de garantie.
+ * -----------------------------------------------------------------------
+ */
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------
+    // Fonctions utilitaires
+    // ---------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        myProfile().role == 'admin';
+    }
+
+    function isOrganizer() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        myProfile().role == 'organizer';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ---------------------------------------------------------------
+    // users/{userId} — profils (nom, email, rôle)
+    // ---------------------------------------------------------------
+    match /users/{userId} {
+      // Lecture : tout utilisateur connecté peut lire les profils (utile
+      // pour afficher les noms des participants, organisateurs, etc.).
+      allow read: if isSignedIn();
+
+      // Création : un utilisateur ne peut créer QUE son propre profil,
+      // au moment de l'inscription, et seulement avec le rôle
+      // "participant" ou "organizer" (jamais "admin" — la promotion en
+      // administrateur doit être faite manuellement, voir README.md).
+      // Un administrateur peut créer un profil pour n'importe quel uid
+      // (nécessaire pour la fonctionnalité d'import JSON, admin/settings.html).
+      allow create: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.id == userId &&
+        request.resource.data.role in ['participant', 'organizer']
+      );
+
+      // Mise à jour : le propriétaire peut modifier son profil MAIS PAS
+      // son propre rôle (empêche l'auto-promotion administrateur).
+      // Un administrateur peut modifier n'importe quel profil, y compris
+      // le rôle (c'est la seule façon de promouvoir un compte "admin").
+      allow update: if isAdmin() ||
+        (isOwner(userId) && request.resource.data.role == resource.data.role);
+
+      // Suppression : réservée à l'administrateur.
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // categories/{categoryId}
+    // ---------------------------------------------------------------
+    match /categories/{categoryId} {
+      allow read: if true; // visibles publiquement (page d'accueil)
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // competitions/{competitionId}
+    // ---------------------------------------------------------------
+    match /competitions/{competitionId} {
+      allow read: if true; // visibles publiquement (page d'accueil, détails)
+
+      // Création : un organisateur peut créer un concours dont il est
+      // lui-même désigné comme organizerId (impossible de créer un
+      // concours au nom de quelqu'un d'autre). Un administrateur peut
+      // créer un concours pour n'importe quel organizerId (nécessaire
+      // pour l'import JSON, admin/settings.html).
+      allow create: if isAdmin() ||
+        (isOrganizer() && request.resource.data.organizerId == request.auth.uid);
+
+      // Modification / suppression : l'organisateur propriétaire du
+      // concours, ou un administrateur.
+      allow update, delete: if isAdmin() ||
+        (isOrganizer() && resource.data.organizerId == request.auth.uid);
+    }
+
+    // ---------------------------------------------------------------
+    // questions/{questionId}
+    // ---------------------------------------------------------------
+    match /questions/{questionId} {
+      // Lecture publique nécessaire pour afficher le nombre de questions
+      // sur la page de détails ; le contenu (dont la bonne réponse) est
+      // néanmoins visible côté client comme dans toute application
+      // frontend pure — voir la note de sécurité dans auth.js.
+      allow read: if true;
+
+      // Écriture : uniquement l'organisateur propriétaire du concours
+      // concerné, ou un administrateur. Un participant ne peut JAMAIS
+      // écrire ici (empêche de modifier une bonne réponse pour tricher).
+      allow create: if isAdmin() || (
+        isOrganizer() &&
+        get(/databases/$(database)/documents/competitions/$(request.resource.data.competitionId)).data.organizerId == request.auth.uid
+      );
+      allow update, delete: if isAdmin() || (
+        isOrganizer() &&
+        get(/databases/$(database)/documents/competitions/$(resource.data.competitionId)).data.organizerId == request.auth.uid
+      );
+    }
+
+    // ---------------------------------------------------------------
+    // participations/{participationId}
+    // ---------------------------------------------------------------
+    match /participations/{participationId} {
+      // Lecture : le participant concerné, l'organisateur du concours
+      // concerné, ou un administrateur.
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid) ||
+        (isOrganizer() &&
+          get(/databases/$(database)/documents/competitions/$(resource.data.competitionId)).data.organizerId == request.auth.uid);
+
+      // Création : un participant ne peut créer QU'UNE participation pour
+      // lui-même (impossible de s'inscrire au nom d'un autre utilisateur).
+      // Un administrateur peut créer une participation pour n'importe
+      // quel userId (nécessaire pour l'import JSON, admin/settings.html).
+      allow create: if isAdmin() ||
+        (isSignedIn() && request.resource.data.userId == request.auth.uid);
+
+      // Mise à jour (démarrage de l'épreuve, soumission) : uniquement le
+      // participant concerné, sans jamais changer le champ `userId`.
+      allow update: if isAdmin() ||
+        (isSignedIn() &&
+          resource.data.userId == request.auth.uid &&
+          request.resource.data.userId == resource.data.userId);
+
+      // Suppression : un administrateur, ou l'organisateur du concours
+      // concerné (nécessaire lorsqu'un organisateur supprime l'un de ses
+      // concours : toutes les participations liées sont supprimées en
+      // cascade, voir Competitions.deleteCompetitionCascade côté client).
+      allow delete: if isAdmin() ||
+        (isOrganizer() &&
+          get(/databases/$(database)/documents/competitions/$(resource.data.competitionId)).data.organizerId == request.auth.uid);
+    }
+
+    // ---------------------------------------------------------------
+    // answers/{answerId}
+    // ---------------------------------------------------------------
+    match /answers/{answerId} {
+      allow read: if isAdmin() || isOrganizer() ||
+        (isSignedIn() &&
+          get(/databases/$(database)/documents/participations/$(resource.data.participationId)).data.userId == request.auth.uid);
+
+      // Un participant ne peut enregistrer une réponse que sur SA PROPRE
+      // participation. Un administrateur peut créer une réponse pour
+      // n'importe quelle participation (nécessaire pour l'import JSON).
+      allow create: if isAdmin() || (
+        isSignedIn() &&
+        get(/databases/$(database)/documents/participations/$(request.resource.data.participationId)).data.userId == request.auth.uid
+      );
+
+      // Les réponses ne sont jamais modifiées après coup (seulement
+      // recréées avant la soumission finale côté client) : on autorise la
+      // mise à jour dans les mêmes conditions que la création, mais
+      // jamais la modification du champ `isCorrect` par un participant.
+      allow update: if isAdmin();
+
+      // Suppression : le participant propriétaire de la participation
+      // (réponses recréées à chaque soumission), un administrateur, ou
+      // l'organisateur du concours concerné (suppression en cascade d'un
+      // concours par son organisateur).
+      allow delete: if isAdmin() ||
+        (isSignedIn() &&
+          get(/databases/$(database)/documents/participations/$(resource.data.participationId)).data.userId == request.auth.uid) ||
+        (isOrganizer() &&
+          get(/databases/$(database)/documents/competitions/$(
+            get(/databases/$(database)/documents/participations/$(resource.data.participationId)).data.competitionId
+          )).data.organizerId == request.auth.uid);
+    }
+
+    // ---------------------------------------------------------------
+    // results/{resultId}
+    // ---------------------------------------------------------------
+    match /results/{resultId} {
+      // Lecture publique nécessaire pour le classement général affiché
+      // sans connexion (public/ranking.html).
+      allow read: if true;
+
+      // Un résultat ne peut être créé QUE pour soi-même, jamais modifié
+      // ni supprimé ensuite par un participant (intégrité du classement).
+      // Un administrateur peut créer un résultat pour n'importe quel
+      // userId (nécessaire pour l'import JSON, admin/settings.html).
+      allow create: if isAdmin() ||
+        (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      allow update: if isAdmin();
+
+      // Suppression : un administrateur, ou l'organisateur du concours
+      // concerné (suppression en cascade d'un concours par son organisateur).
+      allow delete: if isAdmin() ||
+        (isOrganizer() &&
+          get(/databases/$(database)/documents/competitions/$(resource.data.competitionId)).data.organizerId == request.auth.uid);
+    }
+  }
+}

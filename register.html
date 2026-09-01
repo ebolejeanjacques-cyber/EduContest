@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Inscription — EduContest</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="main-navbar"></div>
+
+<main class="container my-5">
+  <div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+      <div class="card p-4">
+        <h2 class="text-center mb-1">Créer un compte</h2>
+        <p class="text-center text-muted-edu mb-4">Rejoignez la plateforme EduContest</p>
+
+        <div id="alert-container"></div>
+
+        <form id="register-form" novalidate>
+          <div class="mb-3">
+            <label class="form-label">Nom complet</label>
+            <input type="text" class="form-control" id="name" required>
+            <div class="invalid-feedback">Merci d'indiquer votre nom.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Adresse email</label>
+            <input type="email" class="form-control" id="email" required>
+            <div class="invalid-feedback">Adresse email invalide.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Mot de passe</label>
+            <input type="password" class="form-control" id="password" required minlength="6">
+            <div class="invalid-feedback">Le mot de passe doit contenir au moins 6 caractères.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Confirmer le mot de passe</label>
+            <input type="password" class="form-control" id="confirmPassword" required minlength="6">
+            <div class="invalid-feedback">Les mots de passe ne correspondent pas.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Type de compte</label>
+            <select class="form-select" id="role" required>
+              <option value="participant">Participant — je veux passer des concours</option>
+              <option value="organizer">Organisateur — je veux créer des concours</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Créer mon compte</button>
+        </form>
+        <p class="text-center mt-3 mb-0">Déjà inscrit ? <a href="login.html">Connectez-vous</a></p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/database.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+<script>
+async function init() {
+  await DB.openDatabase();
+  App.renderNavbar("");
+  const existing = await Auth.ensureSession();
+  if (existing) window.location.href = Auth.dashboardUrlForRole(existing.role, "");
+}
+init();
+
+document.getElementById("register-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const name = document.getElementById("name").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const confirmPassword = document.getElementById("confirmPassword").value;
+  const role = document.getElementById("role").value;
+
+  form.classList.add("was-validated");
+
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const passwordsMatch = password === confirmPassword;
+  document.getElementById("confirmPassword").setCustomValidity(passwordsMatch ? "" : "mismatch");
+
+  // Firebase Authentication exige un mot de passe d'au moins 6 caractères.
+  if (!name || !emailValid || password.length < 6 || !passwordsMatch) {
+    if (!passwordsMatch) {
+      App.showAlert("alert-container", "Les deux mots de passe ne correspondent pas.", "danger");
+    } else if (password.length < 6) {
+      App.showAlert("alert-container", "Le mot de passe doit contenir au moins 6 caractères (exigence Firebase).", "danger");
+    }
+    return;
+  }
+
+  try {
+    // registerUser() crée le compte Firebase Authentication ET le profil
+    // Firestore, puis ouvre directement la session (Firebase connecte
+    // automatiquement l'utilisateur après la création du compte).
+    const session = await Auth.registerUser({ name, email, password, role });
+    App.showAlert("alert-container", "Compte créé avec succès ! Redirection...", "success");
+    setTimeout(() => {
+      window.location.href = Auth.dashboardUrlForRole(session.role, "");
+    }, 600);
+  } catch (err) {
+    App.showAlert("alert-container", translateFirebaseError(err), "danger");
+  }
+});
+
+/** Traduit les codes d'erreur Firebase Authentication les plus courants en français. */
+function translateFirebaseError(err) {
+  const code = err && err.code;
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "Un compte existe déjà avec cet email.";
+    case "auth/invalid-email":
+      return "Adresse email invalide.";
+    case "auth/weak-password":
+      return "Mot de passe trop faible (6 caractères minimum).";
+    default:
+      return err.message || "Une erreur est survenue.";
+  }
+}
+</script>
+</body>
+</html>
