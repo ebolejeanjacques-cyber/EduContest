@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Paramètres — EduContest</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div id="main-navbar"></div>
+
+<main class="container my-4">
+  <div class="row">
+    <div class="col-md-3 mb-4"><div id="main-sidebar"></div></div>
+    <div class="col-md-9">
+      <h2 class="section-title">Paramètres</h2>
+      <div id="alert-container"></div>
+
+      <div class="card p-4 mb-4">
+        <h5><i class="bi bi-magic me-2"></i>Données de démonstration</h5>
+        <p class="text-muted-edu">
+          Ajoute à Firestore quelques catégories, concours et questions de démonstration,
+          rattachés au compte organisateur de votre choix. Les comptes eux-mêmes (admin,
+          organisateur, participant) doivent d'abord être créés via la page d'inscription —
+          voir <code>README.md</code> pour la procédure complète. Optionnel : sélectionnez
+          également un participant pour générer un résultat d'exemple (utile pour tester le
+          classement).
+        </p>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label small">Organisateur (obligatoire)</label>
+            <select class="form-select" id="seed-organizer"><option value="">— Choisir —</option></select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small">Participant (optionnel)</label>
+            <select class="form-select" id="seed-participant"><option value="">— Aucun —</option></select>
+          </div>
+        </div>
+        <button class="btn btn-primary mt-3" id="seed-btn"><i class="bi bi-magic me-1"></i>Créer les données de démonstration</button>
+      </div>
+
+      <div class="card p-4 mb-4">
+        <h5><i class="bi bi-download me-2"></i>Exporter les données</h5>
+        <p class="text-muted-edu">
+          Exporte l'intégralité des collections Firestore (<code>users</code>,
+          <code>categories</code>, <code>competitions</code>, <code>questions</code>,
+          <code>participations</code>, <code>answers</code>, <code>results</code>) dans un
+          fichier JSON, pour archivage ou transfert vers un autre projet Firebase.
+        </p>
+        <button class="btn btn-primary" id="export-btn"><i class="bi bi-download me-1"></i>Exporter toutes les données (.json)</button>
+      </div>
+
+      <div class="card p-4 mb-4">
+        <h5><i class="bi bi-upload me-2"></i>Importer des données</h5>
+        <p class="text-muted-edu">
+          Sélectionnez un fichier JSON précédemment exporté depuis EduContest pour restaurer
+          des données dans Firestore. Chaque document est réécrit avec le même <code>id</code> :
+          un document déjà existant portant le même identifiant sera <strong>écrasé</strong>
+          (pas de doublon) ; les documents non présents dans le fichier restent inchangés.
+        </p>
+        <input type="file" class="form-control mb-3" id="import-file" accept="application/json">
+        <button class="btn btn-warning" id="import-btn"><i class="bi bi-upload me-1"></i>Importer les données</button>
+      </div>
+
+      <div class="card p-4">
+        <h5><i class="bi bi-info-circle me-2"></i>À propos de la plateforme</h5>
+        <ul class="small text-muted-edu">
+          <li>Base de données : <strong>Cloud Firestore</strong> (partagée entre tous les appareils)</li>
+          <li>Authentification : <strong>Firebase Authentication</strong> (Email/Password)</li>
+          <li>Technologies : HTML5, CSS3, Bootstrap 5, JavaScript vanilla</li>
+          <li>Voir <code>firestore.rules</code> pour les règles de sécurité appliquées côté serveur Firebase.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="../js/firebase-config.js"></script>
+<script src="../js/database.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/app.js"></script>
+<script src="../js/seed.js"></script>
+<script>
+async function init() {
+  await DB.openDatabase();
+  const user = await App.initProtectedPage(["admin"], "../");
+  if (!user) return;
+  App.renderNavbar("../");
+  App.renderSidebar([
+    { label: "Tableau de bord", href: "dashboard.html", icon: "bi-speedometer2" },
+    { label: "Utilisateurs", href: "users.html", icon: "bi-people" },
+    { label: "Concours", href: "competitions.html", icon: "bi-list-task" },
+    { label: "Catégories", href: "categories.html", icon: "bi-tags" },
+    { label: "Résultats", href: "results.html", icon: "bi-bar-chart" },
+    { label: "Paramètres", href: "settings.html", icon: "bi-gear", active: true },
+  ], "../");
+
+  const users = await DB.getAll("users");
+  const orgSelect = document.getElementById("seed-organizer");
+  const partSelect = document.getElementById("seed-participant");
+  users.filter(u => u.role === "organizer").forEach(u => {
+    const opt = document.createElement("option");
+    opt.value = u.id; opt.textContent = `${u.name} (${u.email})`;
+    orgSelect.appendChild(opt);
+  });
+  users.filter(u => u.role === "participant").forEach(u => {
+    const opt = document.createElement("option");
+    opt.value = u.id; opt.textContent = `${u.name} (${u.email})`;
+    partSelect.appendChild(opt);
+  });
+
+  if (users.filter(u => u.role === "organizer").length === 0) {
+    App.showAlert(
+      "alert-container",
+      "Aucun compte organisateur trouvé. Créez d'abord un compte organisateur via la page d'inscription pour pouvoir générer des concours de démonstration.",
+      "warning"
+    );
+  }
+}
+init();
+
+document.getElementById("seed-btn").addEventListener("click", async () => {
+  const organizerId = document.getElementById("seed-organizer").value;
+  const participantId = document.getElementById("seed-participant").value || null;
+  if (!organizerId) {
+    App.showAlert("alert-container", "Veuillez choisir un organisateur.", "danger");
+    return;
+  }
+  const btn = document.getElementById("seed-btn");
+  btn.disabled = true;
+  btn.textContent = "Création en cours...";
+  try {
+    await seedDemoContent({ organizerId, participantId });
+    App.showAlert("alert-container", "Données de démonstration créées avec succès dans Firestore.", "success");
+  } catch (err) {
+    App.showAlert("alert-container", err.message, "danger");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-magic me-1"></i>Créer les données de démonstration';
+  }
+});
+
+document.getElementById("export-btn").addEventListener("click", async () => {
+  const data = await DB.exportAllData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `educontest-export-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  App.showAlert("alert-container", "Export généré avec succès.", "success");
+});
+
+document.getElementById("import-btn").addEventListener("click", async () => {
+  const fileInput = document.getElementById("import-file");
+  const file = fileInput.files[0];
+  if (!file) {
+    App.showAlert("alert-container", "Veuillez sélectionner un fichier JSON à importer.", "danger");
+    return;
+  }
+  if (!confirm("Cette opération va écraser les documents Firestore portant les mêmes identifiants. Continuer ?")) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await DB.importAllData(data);
+    App.showAlert("alert-container", "Données importées avec succès ! Rechargement...", "success");
+    setTimeout(() => window.location.reload(), 1200);
+  } catch (err) {
+    App.showAlert("alert-container", "Erreur lors de l'import : fichier invalide.", "danger");
+  }
+});
+</script>
+</body>
+</html>

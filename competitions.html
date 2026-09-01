@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gestion des concours — EduContest</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div id="main-navbar"></div>
+
+<main class="container my-4">
+  <div class="row">
+    <div class="col-md-3 mb-4"><div id="main-sidebar"></div></div>
+    <div class="col-md-9">
+      <h2 class="section-title">Gestion des concours</h2>
+      <div id="alert-container"></div>
+      <div class="table-responsive">
+        <table class="table bg-white shadow-sm rounded align-middle">
+          <thead class="table-light">
+            <tr><th>Titre</th><th>Organisateur</th><th>Catégorie</th><th>Statut</th><th>Dates</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="list"><tr><td colspan="6" class="text-center text-muted-edu py-3">Chargement...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Supprimer le concours</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Voulez-vous vraiment supprimer <strong id="delete-comp-title"></strong> et toutes les données liées (questions, participations, résultats) ?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-btn">Supprimer définitivement</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="../js/firebase-config.js"></script>
+<script src="../js/database.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/app.js"></script>
+<script src="../js/competitions.js"></script>
+<script>
+let deleteTargetId = null;
+
+async function init() {
+  await DB.openDatabase();
+  const user = await App.initProtectedPage(["admin"], "../");
+  if (!user) return;
+  App.renderNavbar("../");
+  App.renderSidebar([
+    { label: "Tableau de bord", href: "dashboard.html", icon: "bi-speedometer2" },
+    { label: "Utilisateurs", href: "users.html", icon: "bi-people" },
+    { label: "Concours", href: "competitions.html", icon: "bi-list-task", active: true },
+    { label: "Catégories", href: "categories.html", icon: "bi-tags" },
+    { label: "Résultats", href: "results.html", icon: "bi-bar-chart" },
+    { label: "Paramètres", href: "settings.html", icon: "bi-gear" },
+  ], "../");
+
+  await renderList();
+}
+
+async function renderList() {
+  const [comps, users, catMap] = await Promise.all([
+    Competitions.getAllCompetitionsWithLiveStatus(),
+    DB.getAll("users"),
+    Competitions.getCategoryMap(),
+  ]);
+  const userMap = {};
+  users.forEach(u => userMap[u.id] = u);
+
+  const tbody = document.getElementById("list");
+  if (comps.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted-edu py-3">Aucun concours sur la plateforme.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = comps.map(c => `
+    <tr>
+      <td>${App.escapeHtml(c.title)}</td>
+      <td>${App.escapeHtml(userMap[c.organizerId] ? userMap[c.organizerId].name : '-')}</td>
+      <td>${App.escapeHtml(catMap[c.categoryId] || '-')}</td>
+      <td>${App.statusBadgeHtml(c.status)}</td>
+      <td class="small">${App.formatDate(c.startDate)} → ${App.formatDate(c.endDate)}</td>
+      <td>
+        <button class="btn btn-sm btn-outline-danger" onclick="askDelete('${c.id}', '${App.escapeHtml(c.title).replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i> Supprimer</button>
+      </td>
+    </tr>`).join("");
+}
+
+function askDelete(id, title) {
+  deleteTargetId = id;
+  document.getElementById("delete-comp-title").textContent = title;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("deleteModal")).show();
+}
+
+document.getElementById("confirm-delete-btn").addEventListener("click", async () => {
+  if (!deleteTargetId) return;
+  await Competitions.deleteCompetitionCascade(deleteTargetId);
+  bootstrap.Modal.getInstance(document.getElementById("deleteModal")).hide();
+  App.showAlert("alert-container", "Concours supprimé avec succès.", "success");
+  deleteTargetId = null;
+  await renderList();
+});
+
+init();
+</script>
+</body>
+</html>
