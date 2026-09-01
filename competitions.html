@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Gestion des concours — EduContest</title>
+<title>Mes concours — EduContest</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="stylesheet" href="../css/style.css">
@@ -16,12 +16,15 @@
   <div class="row">
     <div class="col-md-3 mb-4"><div id="main-sidebar"></div></div>
     <div class="col-md-9">
-      <h2 class="section-title">Gestion des concours</h2>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="section-title mb-0">Mes concours</h2>
+        <a href="create-competition.html" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Nouveau concours</a>
+      </div>
       <div id="alert-container"></div>
       <div class="table-responsive">
         <table class="table bg-white shadow-sm rounded align-middle">
           <thead class="table-light">
-            <tr><th>Titre</th><th>Organisateur</th><th>Catégorie</th><th>Statut</th><th>Dates</th><th>Actions</th></tr>
+            <tr><th>Titre</th><th>Catégorie</th><th>Statut</th><th>Dates</th><th>Questions</th><th>Actions</th></tr>
           </thead>
           <tbody id="list"><tr><td colspan="6" class="text-center text-muted-edu py-3">Chargement...</td></tr></tbody>
         </table>
@@ -30,6 +33,7 @@
   </div>
 </main>
 
+<!-- Modal confirmation suppression -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -38,7 +42,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <p>Voulez-vous vraiment supprimer <strong id="delete-comp-title"></strong> et toutes les données liées (questions, participations, résultats) ?</p>
+        <p>Voulez-vous vraiment supprimer <strong id="delete-comp-title"></strong> ? Toutes les questions, participations et résultats liés seront également supprimés. Cette action est irréversible.</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
@@ -57,51 +61,53 @@
 <script src="../js/auth.js"></script>
 <script src="../js/app.js"></script>
 <script src="../js/competitions.js"></script>
+<script src="../js/questions.js"></script>
 <script>
+let user, catMap = {};
 let deleteTargetId = null;
 
 async function init() {
   await DB.openDatabase();
-  const user = await App.initProtectedPage(["admin"], "../");
+  user = await App.initProtectedPage(["organizer"], "../");
   if (!user) return;
   App.renderNavbar("../");
   App.renderSidebar([
     { label: "Tableau de bord", href: "dashboard.html", icon: "bi-speedometer2" },
-    { label: "Utilisateurs", href: "users.html", icon: "bi-people" },
-    { label: "Concours", href: "competitions.html", icon: "bi-list-task", active: true },
-    { label: "Catégories", href: "categories.html", icon: "bi-tags" },
-    { label: "Résultats", href: "results.html", icon: "bi-bar-chart" },
-    { label: "Paramètres", href: "settings.html", icon: "bi-gear" },
+    { label: "Créer un concours", href: "create-competition.html", icon: "bi-plus-circle" },
+    { label: "Mes concours", href: "competitions.html", icon: "bi-list-task", active: true },
   ], "../");
 
+  catMap = await Competitions.getCategoryMap();
   await renderList();
 }
 
 async function renderList() {
-  const [comps, users, catMap] = await Promise.all([
-    Competitions.getAllCompetitionsWithLiveStatus(),
-    DB.getAll("users"),
-    Competitions.getCategoryMap(),
-  ]);
-  const userMap = {};
-  users.forEach(u => userMap[u.id] = u);
-
+  const comps = await Competitions.getCompetitionsByOrganizer(user.id);
   const tbody = document.getElementById("list");
   if (comps.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted-edu py-3">Aucun concours sur la plateforme.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted-edu py-3">Vous n'avez encore créé aucun concours.</td></tr>`;
     return;
   }
-  tbody.innerHTML = comps.map(c => `
-    <tr>
-      <td>${App.escapeHtml(c.title)}</td>
-      <td>${App.escapeHtml(userMap[c.organizerId] ? userMap[c.organizerId].name : '-')}</td>
-      <td>${App.escapeHtml(catMap[c.categoryId] || '-')}</td>
-      <td>${App.statusBadgeHtml(c.status)}</td>
-      <td class="small">${App.formatDate(c.startDate)} → ${App.formatDate(c.endDate)}</td>
-      <td>
-        <button class="btn btn-sm btn-outline-danger" onclick="askDelete('${c.id}', '${App.escapeHtml(c.title).replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i> Supprimer</button>
-      </td>
-    </tr>`).join("");
+  const rows = [];
+  for (const c of comps) {
+    const questions = await Questions.getQuestionsForCompetition(c.id);
+    rows.push(`
+      <tr>
+        <td>${App.escapeHtml(c.title)}</td>
+        <td>${App.escapeHtml(catMap[c.categoryId] || "-")}</td>
+        <td>${App.statusBadgeHtml(c.status)}</td>
+        <td class="small">${App.formatDate(c.startDate)} → ${App.formatDate(c.endDate)}</td>
+        <td>${questions.length} / ${c.questionCount}</td>
+        <td class="text-nowrap">
+          <a href="questions.html?competitionId=${c.id}" class="btn btn-sm btn-outline-primary" title="Questions"><i class="bi bi-list-check"></i></a>
+          <a href="create-competition.html?id=${c.id}" class="btn btn-sm btn-outline-secondary" title="Modifier"><i class="bi bi-pencil"></i></a>
+          <a href="participants.html?competitionId=${c.id}" class="btn btn-sm btn-outline-info" title="Participants"><i class="bi bi-people"></i></a>
+          <a href="results.html?competitionId=${c.id}" class="btn btn-sm btn-outline-success" title="Résultats"><i class="bi bi-bar-chart"></i></a>
+          <button class="btn btn-sm btn-outline-danger" title="Supprimer" onclick="askDelete('${c.id}', '${App.escapeHtml(c.title).replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`);
+  }
+  tbody.innerHTML = rows.join("");
 }
 
 function askDelete(id, title) {

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gérer les questions — EduContest</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div id="main-navbar"></div>
+
+<main class="container my-4">
+  <div class="row">
+    <div class="col-md-3 mb-4"><div id="main-sidebar"></div></div>
+    <div class="col-md-9">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h2 class="section-title mb-0" id="page-title">Questions du concours</h2>
+        <button class="btn btn-primary" id="add-question-btn"><i class="bi bi-plus-lg me-1"></i>Ajouter une question</button>
+      </div>
+      <p class="text-muted-edu" id="comp-info"></p>
+      <div id="alert-container"></div>
+
+      <div id="questions-list"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Modal ajout / édition question -->
+<div class="modal fade" id="questionModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-title">Ajouter une question</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="question-form" novalidate>
+          <input type="hidden" id="question-id">
+          <div class="mb-3">
+            <label class="form-label">Texte de la question</label>
+            <textarea class="form-control" id="q-text" rows="2" required></textarea>
+            <div class="invalid-feedback">Le texte de la question est obligatoire.</div>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Option A</label>
+              <input type="text" class="form-control" id="q-optionA" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Option B</label>
+              <input type="text" class="form-control" id="q-optionB" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Option C</label>
+              <input type="text" class="form-control" id="q-optionC" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Option D</label>
+              <input type="text" class="form-control" id="q-optionD" required>
+            </div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-md-6">
+              <label class="form-label">Bonne réponse</label>
+              <select class="form-select" id="q-correct" required>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+                <option value="D">D</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Points</label>
+              <input type="number" class="form-control" id="q-points" min="1" max="100" required>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" id="save-question-btn">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="../js/firebase-config.js"></script>
+<script src="../js/database.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/app.js"></script>
+<script src="../js/competitions.js"></script>
+<script src="../js/questions.js"></script>
+<script>
+let user, comp;
+const params = new URLSearchParams(window.location.search);
+const competitionId = params.get("competitionId");
+let questionModal;
+
+async function init() {
+  await DB.openDatabase();
+  user = await App.initProtectedPage(["organizer"], "../");
+  if (!user) return;
+  App.renderNavbar("../");
+  App.renderSidebar([
+    { label: "Tableau de bord", href: "dashboard.html", icon: "bi-speedometer2" },
+    { label: "Créer un concours", href: "create-competition.html", icon: "bi-plus-circle" },
+    { label: "Mes concours", href: "competitions.html", icon: "bi-list-task", active: true },
+  ], "../");
+
+  questionModal = new bootstrap.Modal(document.getElementById("questionModal"));
+
+  comp = competitionId ? await DB.get("competitions", competitionId) : null;
+  if (!comp || comp.organizerId !== user.id) {
+    document.getElementById("questions-list").innerHTML = `<div class="alert alert-warning">Concours introuvable ou accès non autorisé.</div>`;
+    document.getElementById("add-question-btn").disabled = true;
+    return;
+  }
+  document.getElementById("page-title").textContent = `Questions — ${comp.title}`;
+  document.getElementById("comp-info").textContent = `${comp.pointsPerQuestion} point(s) par question par défaut · durée de l'épreuve : ${comp.duration} min`;
+
+  await renderQuestions();
+}
+
+async function renderQuestions() {
+  const questions = await Questions.getQuestionsForCompetition(comp.id);
+  const el = document.getElementById("questions-list");
+  if (questions.length === 0) {
+    el.innerHTML = `<div class="alert alert-secondary">Aucune question pour l'instant. Ajoutez-en pour permettre aux participants de passer l'épreuve.</div>`;
+    return;
+  }
+  el.innerHTML = questions.map((q, idx) => `
+    <div class="card mb-2">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <strong>Q${idx + 1}. ${App.escapeHtml(q.text)}</strong>
+          <span class="badge bg-light text-dark">${q.points} pt</span>
+        </div>
+        <ul class="small mt-2 mb-2">
+          <li class="${q.correctAnswer === 'A' ? 'text-success fw-bold' : ''}">A. ${App.escapeHtml(q.optionA)}</li>
+          <li class="${q.correctAnswer === 'B' ? 'text-success fw-bold' : ''}">B. ${App.escapeHtml(q.optionB)}</li>
+          <li class="${q.correctAnswer === 'C' ? 'text-success fw-bold' : ''}">C. ${App.escapeHtml(q.optionC)}</li>
+          <li class="${q.correctAnswer === 'D' ? 'text-success fw-bold' : ''}">D. ${App.escapeHtml(q.optionD)}</li>
+        </ul>
+        <button class="btn btn-sm btn-outline-secondary" onclick='openEdit(${JSON.stringify(q)})'><i class="bi bi-pencil"></i> Modifier</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteQ('${q.id}')"><i class="bi bi-trash"></i> Supprimer</button>
+      </div>
+    </div>`).join("");
+}
+
+document.getElementById("add-question-btn").addEventListener("click", () => {
+  document.getElementById("question-form").reset();
+  document.getElementById("question-form").classList.remove("was-validated");
+  document.getElementById("question-id").value = "";
+  document.getElementById("q-points").value = comp.pointsPerQuestion;
+  document.getElementById("modal-title").textContent = "Ajouter une question";
+  questionModal.show();
+});
+
+function openEdit(q) {
+  document.getElementById("question-form").classList.remove("was-validated");
+  document.getElementById("question-id").value = q.id;
+  document.getElementById("q-text").value = q.text;
+  document.getElementById("q-optionA").value = q.optionA;
+  document.getElementById("q-optionB").value = q.optionB;
+  document.getElementById("q-optionC").value = q.optionC;
+  document.getElementById("q-optionD").value = q.optionD;
+  document.getElementById("q-correct").value = q.correctAnswer;
+  document.getElementById("q-points").value = q.points;
+  document.getElementById("modal-title").textContent = "Modifier la question";
+  questionModal.show();
+}
+
+document.getElementById("save-question-btn").addEventListener("click", async () => {
+  const form = document.getElementById("question-form");
+  form.classList.add("was-validated");
+  if (!form.checkValidity()) return;
+
+  const data = {
+    text: document.getElementById("q-text").value,
+    optionA: document.getElementById("q-optionA").value,
+    optionB: document.getElementById("q-optionB").value,
+    optionC: document.getElementById("q-optionC").value,
+    optionD: document.getElementById("q-optionD").value,
+    correctAnswer: document.getElementById("q-correct").value,
+    points: document.getElementById("q-points").value,
+  };
+  const id = document.getElementById("question-id").value;
+
+  if (id) {
+    await Questions.updateQuestion(id, data);
+    App.showAlert("alert-container", "Question modifiée avec succès.", "success");
+  } else {
+    await Questions.addQuestion(comp.id, data, data.points);
+    App.showAlert("alert-container", "Question ajoutée avec succès.", "success");
+  }
+  questionModal.hide();
+  await renderQuestions();
+});
+
+async function deleteQ(id) {
+  if (!confirm("Supprimer définitivement cette question ?")) return;
+  await Questions.deleteQuestion(id);
+  App.showAlert("alert-container", "Question supprimée.", "success");
+  await renderQuestions();
+}
+
+init();
+</script>
+</body>
+</html>
