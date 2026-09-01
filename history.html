@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mes participations — EduContest</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div id="main-navbar"></div>
+
+<main class="container my-4">
+  <div class="row">
+    <div class="col-md-3 mb-4"><div id="main-sidebar"></div></div>
+    <div class="col-md-9">
+      <h2 class="section-title">Mes participations</h2>
+      <div class="table-responsive">
+        <table class="table bg-white shadow-sm rounded align-middle">
+          <thead class="table-light">
+            <tr><th>Concours</th><th>Statut</th><th>Score</th><th>Date</th><th></th></tr>
+          </thead>
+          <tbody id="list"><tr><td colspan="5" class="text-center text-muted-edu py-3">Chargement...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="../js/firebase-config.js"></script>
+<script src="../js/database.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/app.js"></script>
+<script src="../js/participants.js"></script>
+<script src="../js/results.js"></script>
+<script>
+async function init() {
+  await DB.openDatabase();
+  const user = await App.initProtectedPage(["participant"], "../");
+  if (!user) return;
+  App.renderNavbar("../");
+  App.renderSidebar([
+    { label: "Tableau de bord", href: "dashboard.html", icon: "bi-speedometer2" },
+    { label: "Concours disponibles", href: "competitions.html", icon: "bi-list-task" },
+    { label: "Mes participations", href: "history.html", icon: "bi-clock-history", active: true },
+    { label: "Classement", href: "ranking.html", icon: "bi-trophy" },
+    { label: "Mon profil", href: "profile.html", icon: "bi-person-circle" },
+  ], "../");
+
+  const participations = await Participants.getParticipationsForUser(user.id);
+  const tbody = document.getElementById("list");
+  if (participations.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted-edu py-3">Aucune participation pour le moment. <a href="competitions.html">Voir les concours</a>.</td></tr>`;
+    return;
+  }
+
+  const rows = [];
+  for (const p of participations) {
+    let scoreCell = "-";
+    let actionCell = `<a href="details.html?id=${p.competitionId}" class="btn btn-sm btn-outline-primary">Voir</a>`;
+    if (p.status === "Terminé") {
+      const result = await Results.getResultForParticipation(p.id);
+      if (result) {
+        scoreCell = `${result.score} / ${result.maxScore} (${result.percentage}%)`;
+        actionCell = `<a href="result.html?resultId=${result.id}" class="btn btn-sm btn-primary">Voir le résultat</a>`;
+      }
+    } else if (p.status === "En cours") {
+      actionCell = `<a href="exam.html?id=${p.competitionId}" class="btn btn-sm btn-warning">Continuer</a>`;
+    }
+    rows.push(`
+      <tr>
+        <td>${App.escapeHtml(p.competition ? p.competition.title : 'Concours supprimé')}</td>
+        <td><span class="badge bg-info text-dark">${p.status}</span></td>
+        <td>${scoreCell}</td>
+        <td>${App.formatDate(p.submittedAt || p.startedAt)}</td>
+        <td>${actionCell}</td>
+      </tr>`);
+  }
+  tbody.innerHTML = rows.join("");
+}
+init();
+</script>
+</body>
+</html>

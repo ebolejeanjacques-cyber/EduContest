@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Épreuve en cours — EduContest</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<nav class="navbar navbar-dark navbar-brand-edu sticky-top">
+  <div class="container">
+    <span class="navbar-brand fw-bold"><i class="bi bi-mortarboard-fill me-1"></i>EduContest</span>
+    <div id="timer-zone"><span class="exam-timer" id="timer-display">--:--</span></div>
+  </div>
+</nav>
+
+<main class="container my-4" id="content">
+  <div class="text-center text-muted-edu py-5">Chargement de l'épreuve...</div>
+</main>
+
+<!-- Modal de confirmation de soumission -->
+<div class="modal fade" id="confirmModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Confirmer la soumission</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-text">Voulez-vous vraiment soumettre votre épreuve ?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" id="confirm-submit-btn">Soumettre</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="../js/firebase-config.js"></script>
+<script src="../js/database.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/app.js"></script>
+<script src="../js/questions.js"></script>
+<script src="../js/participants.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const compId = params.get("id");
+let user, comp, questions, participation;
+let answers = {};
+let remainingSeconds = 0;
+let timerInterval = null;
+let startTimestamp = null;
+let autoSubmitted = false;
+
+async function init() {
+  await DB.openDatabase();
+  user = await App.initProtectedPage(["participant"], "../");
+  if (!user) return;
+
+  comp = compId ? await DB.get("competitions", compId) : null;
+  if (!comp) {
+    document.getElementById("content").innerHTML = `<div class="alert alert-warning">Concours introuvable.</div>`;
+    return;
+  }
+
+  const liveStatus = App.computeCompetitionStatus(comp);
+  if (liveStatus !== "En cours") {
+    document.getElementById("content").innerHTML = `<div class="alert alert-warning">Ce concours n'est pas actuellement disponible pour passer l'épreuve.</div>`;
+    return;
+  }
+
+  questions = await Questions.getQuestionsForCompetition(comp.id);
+  if (questions.length === 0) {
+    document.getElementById("content").innerHTML = `<div class="alert alert-secondary">Aucune question disponible pour ce concours.</div>`;
+    return;
+  }
+
+  participation = await Participants.getParticipation(comp.id, user.id);
+  if (!participation) participation = await Participants.registerToCompetition(comp.id, user.id);
+
+  if (participation.status === "Terminé") {
+    window.location.href = `details.html?id=${comp.id}`;
+    return;
+  }
+
+  participation = await Participants.startExam(participation.id);
+  startTimestamp = new Date(participation.startedAt).getTime();
+
+  const elapsedAlready = Math.floor((Date.now() - startTimestamp) / 1000);
+  remainingSeconds = Math.max(comp.duration * 60 - elapsedAlready, 0);
+
+  renderExam();
+  startTimer();
+}
+
+function renderExam() {
+  const content = document.getElementById("content");
+  content.innerHTML = `
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="mb-0">${App.escapeHtml(comp.title)}</h4>
+      <span class="text-muted-edu small">${questions.length} question(s) · ${comp.pointsPerQuestion} pt/question</span>
+    </div>
+    <div class="progress mb-4" style="height:8px;">
+      <div class="progress-bar bg-warning" id="progress-bar" style="width:0%"></div>
+    </div>
+    <div id="questions-container"></div>
+    <div class="d-flex justify-content-between mt-4">
+      <span class="text-muted-edu" id="answered-count">0 / ${questions.length} répondues</span>
+      <button class="btn btn-primary btn-lg" id="submit-btn">Soumettre l'épreuve</button>
+    </div>
+  `;
+
+  const container = document.getElementById("questions-container");
+  container.innerHTML = questions.map((q, idx) => `
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-3">Question ${idx + 1}. ${App.escapeHtml(q.text)} <span class="badge bg-light text-dark">${q.points} pt</span></h6>
+        <div class="question-option" data-qid="${q.id}" data-opt="A"><strong>A.</strong> ${App.escapeHtml(q.optionA)}</div>
+        <div class="question-option" data-qid="${q.id}" data-opt="B"><strong>B.</strong> ${App.escapeHtml(q.optionB)}</div>
+        <div class="question-option" data-qid="${q.id}" data-opt="C"><strong>C.</strong> ${App.escapeHtml(q.optionC)}</div>
+        <div class="question-option" data-qid="${q.id}" data-opt="D"><strong>D.</strong> ${App.escapeHtml(q.optionD)}</div>
+      </div>
+    </div>
+  `).join("");
+
+  container.querySelectorAll(".question-option").forEach(el => {
+    el.addEventListener("click", () => {
+      const qid = el.dataset.qid;
+      const opt = el.dataset.opt;
+      answers[qid] = opt; // le participant peut modifier sa réponse avant soumission
+      container.querySelectorAll(`.question-option[data-qid="${qid}"]`).forEach(o => o.classList.remove("selected"));
+      el.classList.add("selected");
+      updateProgress();
+    });
+  });
+
+  document.getElementById("submit-btn").addEventListener("click", () => openConfirm(false));
+}
+
+function updateProgress() {
+  const answeredCount = Object.keys(answers).length;
+  document.getElementById("answered-count").textContent = `${answeredCount} / ${questions.length} répondues`;
+  document.getElementById("progress-bar").style.width = `${Math.round((answeredCount / questions.length) * 100)}%`;
+}
+
+function startTimer() {
+  updateTimerDisplay();
+  timerInterval = setInterval(() => {
+    remainingSeconds--;
+    updateTimerDisplay();
+    if (remainingSeconds <= 0) {
+      clearInterval(timerInterval);
+      finalizeSubmission(true);
+    }
+  }, 1000);
+}
+
+function updateTimerDisplay() {
+  const display = document.getElementById("timer-display");
+  const m = Math.floor(remainingSeconds / 60).toString().padStart(2, "0");
+  const s = Math.max(remainingSeconds, 0).toString().padStart(2, "0");
+  display.textContent = `${m}:${s}`;
+  display.classList.remove("timer-warning", "timer-danger");
+  if (remainingSeconds <= 30) display.classList.add("timer-danger");
+  else if (remainingSeconds <= 60) display.classList.add("timer-warning");
+}
+
+function openConfirm(isAuto) {
+  const unanswered = questions.length - Object.keys(answers).length;
+  document.getElementById("confirm-text").textContent = unanswered > 0
+    ? `Il vous reste ${unanswered} question(s) sans réponse. Voulez-vous vraiment soumettre ?`
+    : "Voulez-vous vraiment soumettre votre épreuve ? Cette action est définitive.";
+  const modalEl = document.getElementById("confirmModal");
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  modal.show();
+  document.getElementById("confirm-submit-btn").onclick = () => {
+    modal.hide();
+    finalizeSubmission(false);
+  };
+}
+
+async function finalizeSubmission(isAuto) {
+  if (autoSubmitted) return;
+  autoSubmitted = true;
+  clearInterval(timerInterval);
+  // Empêche le participant de continuer une fois le temps terminé / soumis.
+  document.querySelectorAll(".question-option").forEach(el => el.style.pointerEvents = "none");
+  const submitBtn = document.getElementById("submit-btn");
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Soumission en cours..."; }
+
+  const timeUsed = Math.max(comp.duration * 60 - Math.max(remainingSeconds, 0), 0);
+  const result = await Participants.submitExam(participation, questions, answers, timeUsed);
+
+  window.location.href = `result.html?resultId=${result.id}${isAuto ? '&auto=1' : ''}`;
+}
+
+window.addEventListener("beforeunload", (e) => {
+  if (!autoSubmitted) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+
+init();
+</script>
+</body>
+</html>
