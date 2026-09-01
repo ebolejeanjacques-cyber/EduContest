@@ -12,13 +12,8 @@
 
 <div id="main-navbar"></div>
 
-<main class="container my-4">
-  <div class="row">
-    <div class="col-md-3 mb-4"><div id="main-sidebar"></div></div>
-    <div class="col-md-9" id="content">
-      <div class="text-center text-muted-edu py-5">Chargement...</div>
-    </div>
-  </div>
+<main class="container my-5" id="content">
+  <div class="text-center py-5 text-muted-edu">Chargement...</div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -32,91 +27,61 @@
 <script src="../js/competitions.js"></script>
 <script src="../js/questions.js"></script>
 <script src="../js/participants.js"></script>
-<script src="../js/results.js"></script>
 <script>
 const params = new URLSearchParams(window.location.search);
 const compId = params.get("id");
-let user;
 
 async function init() {
   await DB.openDatabase();
-  user = await App.initProtectedPage(["participant"], "../");
-  if (!user) return;
+  await Auth.ensureSession();
   App.renderNavbar("../");
-  App.renderSidebar([
-    { label: "Tableau de bord", href: "dashboard.html", icon: "bi-speedometer2" },
-    { label: "Concours disponibles", href: "competitions.html", icon: "bi-list-task", active: true },
-    { label: "Mes participations", href: "history.html", icon: "bi-clock-history" },
-    { label: "Classement", href: "ranking.html", icon: "bi-trophy" },
-    { label: "Mon profil", href: "profile.html", icon: "bi-person-circle" },
-  ], "../");
 
-  await render();
-}
-
-async function render() {
-  const content = document.getElementById("content");
   const comp = compId ? await DB.get("competitions", compId) : null;
+  const content = document.getElementById("content");
   if (!comp) {
-    content.innerHTML = `<div class="alert alert-warning">Concours introuvable.</div>`;
+    content.innerHTML = `<div class="alert alert-warning">Concours introuvable. <a href="../index.html">Retour à l'accueil</a></div>`;
     return;
   }
   comp.status = App.computeCompetitionStatus(comp);
   const catMap = await Competitions.getCategoryMap();
   const questions = await Questions.getQuestionsForCompetition(comp.id);
-  const participation = await Participants.getParticipation(comp.id, user.id);
+  const organizer = await DB.get("users", comp.organizerId);
 
-  let actionZone = "";
-  if (participation && participation.status === "Terminé") {
-    actionZone = `
-      <div class="alert alert-success">
-        <i class="bi bi-check-circle me-1"></i>Vous avez déjà terminé ce concours.
-        <a href="result.html?resultId=${(await Results.getResultForParticipation(participation.id))?.id || ''}" class="alert-link">Voir mon résultat</a>
-      </div>`;
-  } else if (comp.status === "Terminé") {
-    actionZone = `<div class="alert alert-secondary">Ce concours est terminé, il n'est plus possible d'y participer.</div>`;
-  } else if (comp.status === "À venir") {
-    actionZone = `<div class="alert alert-warning">Ce concours n'a pas encore commencé. Inscrivez-vous dès maintenant pour ne pas l'oublier.
-      <div class="mt-2"><button class="btn btn-warning" id="register-btn">${participation ? 'Déjà inscrit ✓' : "S'inscrire"}</button></div></div>`;
-  } else if (questions.length === 0) {
-    actionZone = `<div class="alert alert-secondary">Aucune question n'a encore été ajoutée à ce concours par l'organisateur.</div>`;
-  } else {
-    actionZone = `<button class="btn btn-primary btn-lg" id="start-btn"><i class="bi bi-play-fill me-1"></i>${participation && participation.status === 'En cours' ? "Reprendre l'épreuve" : "Participer maintenant"}</button>`;
+  const user = Auth.getCurrentUser();
+  let actionHtml = `<a href="../login.html" class="btn btn-primary btn-lg">Connectez-vous pour participer</a>`;
+  if (user && user.role === "participant") {
+    actionHtml = `<a href="../participant/details.html?id=${comp.id}" class="btn btn-primary btn-lg">Voir dans mon espace participant</a>`;
+  } else if (user && user.role !== "participant") {
+    actionHtml = `<span class="text-muted-edu">Connectez-vous avec un compte participant pour vous inscrire.</span>`;
   }
 
   content.innerHTML = `
-    <div class="d-flex justify-content-between align-items-start mb-2">
-      <span class="card-cat">${App.escapeHtml(catMap[comp.categoryId] || "Général")}</span>
-      ${App.statusBadgeHtml(comp.status)}
+    <div class="row">
+      <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="card-cat">${App.escapeHtml(catMap[comp.categoryId] || "Général")}</span>
+          ${App.statusBadgeHtml(comp.status)}
+        </div>
+        <h1>${App.escapeHtml(comp.title)}</h1>
+        <p class="lead text-muted-edu">${App.escapeHtml(comp.description)}</p>
+        <div class="mt-4">${actionHtml}</div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card p-3">
+          <h6 class="fw-bold">Informations</h6>
+          <ul class="list-unstyled small">
+            <li class="mb-2"><i class="bi bi-bar-chart me-2"></i>Niveau : <strong>${App.escapeHtml(comp.level)}</strong></li>
+            <li class="mb-2"><i class="bi bi-calendar-event me-2"></i>Début : ${App.formatDateTime(comp.startDate)}</li>
+            <li class="mb-2"><i class="bi bi-calendar-check me-2"></i>Fin : ${App.formatDateTime(comp.endDate)}</li>
+            <li class="mb-2"><i class="bi bi-stopwatch me-2"></i>Durée : ${comp.duration} minutes</li>
+            <li class="mb-2"><i class="bi bi-question-circle me-2"></i>${questions.length} question(s) — ${comp.pointsPerQuestion} pt/question</li>
+            <li class="mb-0"><i class="bi bi-person-badge me-2"></i>Organisé par : ${App.escapeHtml(organizer ? organizer.name : "-")}</li>
+          </ul>
+        </div>
+      </div>
     </div>
-    <h2>${App.escapeHtml(comp.title)}</h2>
-    <p class="text-muted-edu">${App.escapeHtml(comp.description)}</p>
-    <div class="row mb-4">
-      <div class="col-md-3 col-6 mb-2"><small class="text-muted-edu d-block">Niveau</small><strong>${App.escapeHtml(comp.level)}</strong></div>
-      <div class="col-md-3 col-6 mb-2"><small class="text-muted-edu d-block">Durée</small><strong>${comp.duration} min</strong></div>
-      <div class="col-md-3 col-6 mb-2"><small class="text-muted-edu d-block">Questions</small><strong>${questions.length}</strong></div>
-      <div class="col-md-3 col-6 mb-2"><small class="text-muted-edu d-block">Points/question</small><strong>${comp.pointsPerQuestion}</strong></div>
-    </div>
-    <div id="action-zone">${actionZone}</div>
   `;
-
-  const registerBtn = document.getElementById("register-btn");
-  if (registerBtn) {
-    registerBtn.addEventListener("click", async () => {
-      await Participants.registerToCompetition(comp.id, user.id);
-      render();
-    });
-  }
-  const startBtn = document.getElementById("start-btn");
-  if (startBtn) {
-    startBtn.addEventListener("click", async () => {
-      let p = participation;
-      if (!p) p = await Participants.registerToCompetition(comp.id, user.id);
-      window.location.href = `exam.html?id=${comp.id}`;
-    });
-  }
 }
-
 init();
 </script>
 </body>

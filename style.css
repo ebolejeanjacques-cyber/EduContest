@@ -1,0 +1,209 @@
+/* =========================================================================
+   style.css — Identité visuelle EduContest
+   Palette : indigo profond (marque/savoir) + ambre (réussite/récompense)
+   Typo : "Sora" pour les titres (géométrique, moderne), "Inter" pour le
+   texte courant (très lisible en interface).
+   ========================================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap");
+
+:root {
+  --edu-indigo-900: #241f5e;
+  --edu-indigo-700: #332d84;
+  --edu-indigo-600: #3f37a3;
+  --edu-indigo-100: #e7e5fb;
+  --edu-amber-500: #f5a524;
+  --edu-amber-600: #dd8f10;
+  --edu-bg: #f6f6fb;
+  --edu-surface: #ffffff;
+  --edu-text: #201d3a;
+  --edu-text-muted: #6b6790;
+  --edu-border-radius: 0.9rem;
+}
+
+body {
+  background-color: var(--edu-bg);
+  color: var(--edu-text);
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: "Sora", system-ui, sans-serif;
+  font-weight: 700;
+  color: var(--edu-indigo-900);
+}
+
+a {
+  text-decoration: none;
+}
+
+/* ---- Navbar ------------------------------------------------------- */
+.navbar-brand-edu {
+  background: linear-gradient(100deg, var(--edu-indigo-900) 0%, var(--edu-indigo-600) 100%);
+}
+.navbar-brand-edu .navbar-brand {
+  font-family: "Sora", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+}
+
+/* ---- Hero ----------------------------------------------------------- */
+.edu-hero {
+  background: radial-gradient(circle at 15% 20%, var(--edu-indigo-600) 0%, var(--edu-indigo-900) 55%, #171341 100%);
+  color: #fff;
+  border-radius: 0 0 2.5rem 2.5rem;
+  padding: 4.5rem 0 5.5rem;
+  position: relative;
+  overflow: hidden;
+}
+.edu-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(245, 165, 36, 0.18) 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.6;
+}
+.edu-hero .container { position: relative; z-index: 1; }
+.edu-hero .eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+  color: var(--edu-amber-500);
+  font-weight: 600;
+}
+
+/* ---- Cards ------------------------------------------------------ */
+.card {
+  border: none;
+  border-radius: var(--edu-border-radius);
+  box-shadow: 0 4px 18px rgba(36, 31, 94, 0.07);
+}
+.card-competition {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.card-competition:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 28px rgba(36, 31, 94, 0.14);
+}
+.card-competition .card-cat {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--edu-indigo-600);
+  font-weight: 600;
+}
+
+.stat-card {
+  border-radius: var(--edu-border-radius);
+  padding: 1.4rem;
+  color: #fff;
+  background: linear-gradient(135deg, var(--edu-indigo-700), var(--edu-indigo-900));
+}
+.stat-card .stat-value {
+  font-family: "Sora", sans-serif;
+  font-size: 2rem;
+  font-weight: 800;
+}
+.stat-card.amber { background: linear-gradient(135deg, var(--edu-amber-600), var(--edu-amber-500)); }
+
+/* ---- Buttons ---------------------------------------------------- */
+.btn-primary {
+  background-color: var(--edu-indigo-600);
+  border-color: var(--edu-indigo-600);
+}
+.btn-primary:hover, .btn-primary:focus {
+  background-color: var(--edu-indigo-900);
+  border-color: var(--edu-indigo-900);
+}
+.btn-warning {
+  color: #241f5e;
+  font-weight: 600;
+}
+
+/* ---- Sidebar ------------------------------------------------------ */
+#main-sidebar .list-group-item {
+  border: none;
+  border-radius: 0.6rem !important;
+  margin-bottom: 0.25rem;
+  color: var(--edu-text);
+  font-weight: 500;
+}
+#main-sidebar .list-group-item.active {
+  background-color: var(--edu-indigo-600);
+  color: #fff;
+}
+#main-sidebar .list-group-item:not(.active):hover {
+  background-color: var(--edu-indigo-100);
+}
+
+/* ---- Exam / Timer ------------------------------------------------- */
+.exam-timer {
+  font-family: "Sora", sans-serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+  padding: 0.4rem 1rem;
+  border-radius: 2rem;
+  background-color: var(--edu-indigo-100);
+  color: var(--edu-indigo-900);
+}
+.exam-timer.timer-warning {
+  background-color: #fff1d6;
+  color: var(--edu-amber-600);
+  animation: pulse-warning 1s infinite;
+}
+.exam-timer.timer-danger {
+  background-color: #fde2e2;
+  color: #b3261e;
+  animation: pulse-warning 0.6s infinite;
+}
+@keyframes pulse-warning {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.question-option {
+  cursor: pointer;
+  border: 1px solid #e3e1f5;
+  border-radius: 0.7rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.6rem;
+  transition: all 0.12s ease;
+}
+.question-option:hover { border-color: var(--edu-indigo-600); }
+.question-option.selected {
+  border-color: var(--edu-indigo-600);
+  background-color: var(--edu-indigo-100);
+  font-weight: 600;
+}
+
+/* ---- Ranking podium ------------------------------------------------ */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-weight: 700;
+  background-color: var(--edu-indigo-100);
+  color: var(--edu-indigo-900);
+}
+.rank-badge.rank-1 { background-color: #f5c518; color: #443300; }
+.rank-badge.rank-2 { background-color: #cfd3da; color: #33363c; }
+.rank-badge.rank-3 { background-color: #d99a5f; color: #442600; }
+
+/* ---- Misc ---------------------------------------------------------- */
+.section-title {
+  border-left: 5px solid var(--edu-amber-500);
+  padding-left: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+footer.edu-footer {
+  background-color: var(--edu-indigo-900);
+  color: #cfcaf0;
+  padding: 2rem 0;
+  margin-top: 4rem;
+}
+.text-muted-edu { color: var(--edu-text-muted); }
+.badge-level { background-color: var(--edu-indigo-100); color: var(--edu-indigo-900); }
